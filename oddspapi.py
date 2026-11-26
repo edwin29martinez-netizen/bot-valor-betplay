@@ -166,34 +166,47 @@ def completar_participantes(c: dict, partidos: list[dict]) -> None:
                 c["participantes"][str(pid)] = nombre
 
 
-LOTE = Path(__file__).parent / "data" / "lote.json"
+LOTE = Path(__file__).parent / "data" / "lote_ligas.json"
+
+
+def _pedir(torneos: list[str], casa: str, lote: int) -> tuple[list[dict], int]:
+    """Pide las cuotas de UNA casa (OddsPapi solo acepta una por consulta).
+    Si rechaza el grupo por las ligas, lo parte a la mitad; otros errores no se reintentan."""
+    pendientes = [torneos[i:i + lote] for i in range(0, len(torneos), lote)]
+    salida: list[dict] = []
+    while pendientes:
+        grupo = pendientes.pop(0)
+        try:
+            salida += lista(get("odds-by-tournaments", tournamentIds=",".join(grupo), bookmaker=casa))
+        except requests.HTTPError as e:
+            texto = e.response.text[:300] if e.response is not None else ""
+            if (e.response is not None and e.response.status_code == 400
+                    and "tournament" in texto.lower() and len(grupo) > 1):
+                mitad = (len(grupo) + 1) // 2
+                lote = min(lote, mitad)
+                pendientes = [grupo[:mitad], grupo[mitad:]] + pendientes
+                continue
+            print(f"Error con {casa} en ligas {grupo}: {texto}")
+            raise
+    return salida, lote
 
 
 def cuotas(torneos: list[str]) -> list[dict]:
-    """Pide las cuotas por grupos de ligas. Si OddsPapi rechaza el grupo (400),
-    lo parte a la mitad y recuerda el tamaño que funciona para no gastar consultas."""
-    casas = ",".join([config.REFERENCIA, config.MI_CASA, config.PAREJA_SUREBET])
+    """Junta en cada partido las cuotas de Pinnacle, BetPlay y (si está activa) la pareja de surebets."""
+    casas = [c for c in (config.REFERENCIA, config.MI_CASA, config.PAREJA_SUREBET) if c]
     try:
         lote = int(json.loads(LOTE.read_text())["lote"])
     except Exception:
         lote = len(torneos)
     lote = max(1, min(lote, len(torneos)))
-    pendientes = [torneos[i:i + lote] for i in range(0, len(torneos), lote)]
-    partidos: list[dict] = []
-    while pendientes:
-        grupo = pendientes.pop(0)
-        try:
-            partidos += lista(get("odds-by-tournaments", tournamentIds=",".join(grupo), bookmakers=casas))
-        except requests.HTTPError as e:
-            if e.response is not None and e.response.status_code == 400 and len(grupo) > 1:
-                print(f"Grupo de {len(grupo)} ligas rechazado: {e.response.text[:200]}")
-                mitad = (len(grupo) + 1) // 2
-                lote = min(lote, mitad)
-                pendientes = [grupo[:mitad], grupo[mitad:]] + pendientes
-                continue
-            detalle = e.response.text[:300] if e.response is not None else ""
-            print(f"Se omite la liga {grupo}: {e} {detalle}")
+    partidos: dict[str, dict] = {}
+    for casa in casas:
+        datos, lote = _pedir(torneos, casa, lote)
+        for fx in datos:
+            p = partidos.setdefault(str(fx.get("fixtureId")),
+                                    {**{k: v for k, v in fx.items() if k != "bookmakerOdds"}, "bookmakerOdds": {}})
+            p["bookmakerOdds"].update(fx.get("bookmakerOdds") or {})
     LOTE.parent.mkdir(parents=True, exist_ok=True)
     LOTE.write_text(json.dumps({"lote": lote}))
-    print(f"Ligas por consulta: {lote}")
-    return partidos
+    print(f"Ligas por consulta: {lote} | casas: {', '.join(casas)}")
+    return list(partidos.values())
