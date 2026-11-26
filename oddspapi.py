@@ -43,6 +43,8 @@ def get(ruta: str, **params):
             continue
         if r.status_code == 404:
             return None
+        if r.status_code >= 400:
+            print(f"OddsPapi {ruta}: HTTP {r.status_code} {r.text[:300]}")
         r.raise_for_status()
         return r.json()
     raise RuntimeError(f"OddsPapi: demasiados reintentos en {ruta}")
@@ -111,14 +113,19 @@ def refrescar_catalogo(c: dict, avisos: list[str]) -> None:
             continue
         todos = lista(get("tournaments", sportId=sid))
         for _, cat, nom in [l for l in config.LIGAS if l[0] == dep]:
+            malas = config.EXCLUIR + ["srl", "simulated", "virtual", "esoccer", "ebasket", "cyber"]
             cands = [t for t in todos
                      if nom in norm(t.get("tournamentName", ""))
                      and cat in norm(t.get("categoryName", ""))
-                     and not any(x in norm(t.get("tournamentName", "")) for x in config.EXCLUIR)]
+                     and not any(x in norm(f"{t.get('tournamentName', '')} {t.get('categoryName', '')}")
+                                 for x in malas)]
             if not cands:
                 avisos.append(f"Liga no encontrada: {dep} / {cat or '*'} / {nom}")
                 continue
-            t = max(cands, key=lambda x: x.get("futureFixtures") or 0)
+            # Prefiere el nombre exacto (LaLiga antes que LaLiga 2), luego el más corto
+            t = min(cands, key=lambda x: (norm(x.get("tournamentName", "")) != nom,
+                                          len(x.get("tournamentName", "")),
+                                          -(x.get("futureFixtures") or 0)))
             tid = str(t["tournamentId"])
             torneos[f"{dep}|{cat}|{nom}"] = tid
             nombres_torneos[tid] = f"{t.get('categoryName', '')} - {t.get('tournamentName', '')}"
