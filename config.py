@@ -1,10 +1,10 @@
 """Configuración del bot. Lo que más se cambia está aquí."""
 import os
 
-# Casas: OddsPapi permite máximo 3 por consulta.
+# Casas: OddsPapi pide una consulta por cada casa.
 REFERENCIA = "pinnacle"          # casa "afilada" para calcular la cuota justa
 MI_CASA = "betplay"              # donde apuestas
-PAREJA_SUREBET = "betsson"       # tercera casa: se usa para surebets con BetPlay
+PAREJA_SUREBET = ""              # "" = surebets apagadas (ahorra consultas). Para activar: "betsson"
 
 # Ligas: (deporte, palabra del país/categoría, palabra del nombre del torneo)
 # Se buscan sin tildes y sin mayúsculas. Categoría vacía = cualquiera.
